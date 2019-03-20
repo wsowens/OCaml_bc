@@ -32,7 +32,10 @@ let getVar (_v: string) (_q:envQueue): float = 0.0
     match _q with 
     | [] -> Error("No environments allocated")
     | globals :: [] ->
-            (match Map.find
+            (match Map.find _v with
+            | Some(value) -> value
+            | None -> 0.)
+    | globals :: []
 
 let putVar (_v: string) (_value: value) (_q:envQueue): (envQueue, result) result =
     match _q with
