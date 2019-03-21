@@ -20,6 +20,7 @@ type statement =
     | While of expr*statement list
     | For of statement*expr*statement*statement list
     | FctDef of string * string list * statement list 
+    | Nop
 
 type eval_status =
     | Normal
@@ -196,7 +197,7 @@ and evalStatement (s: statement) (_env: env): env*eval_status =
                         (* run the post statement and check, then recurse if good*)
                         (let new_env, status = evalStatement post new_env in 
                         match status with
-                        | Normal -> evalStatement s new_env
+                        | Normal -> ( evalStatement (For(Nop, cond, post, body)) new_env )
                         | _ as abnormal -> new_env, abnormal)
                     (* handle the break by leaving *)
                     | Break -> new_env, Normal
@@ -204,6 +205,7 @@ and evalStatement (s: statement) (_env: env): env*eval_status =
                 else new_env, Normal)
         | _ -> new_env, stat )
     | FctDef(name, args, body) -> (add_func name (args, body) _env), Normal
+    | Nop -> _env, Normal
 ;;
 
 let evalCode (_code: block) (_env: env): unit = 
@@ -312,16 +314,15 @@ let%expect_test "while" =
 let for_block: block = [
     Assign("result", Num(1.)) ;
     For( Assign("i", Num(1.)), 
-         Op2("<", Var("i"), Num(9.)),
+         Op2("<=", Var("i"), Num(9.)),
          Assign("i", Op2("+", Var("i"), Num(1.))),
-         [Assign("result", Op2("+", Var("result"), Op2("^", Num(2.), Var("i")) ) );
-         Assign("i", Op2("+", Var("i"), Num(1.)));
-         Expr(Var("i"))]);
+         [Assign("result", Op2("+", Var("result"), Op2("^", Num(2.), Var("i")) ) )]
+         );
     Expr(Var("result"))]
 
 let%expect_test "For" =
     evalCode for_block empty_env;
-    [%expect {| 12. |}]
+    [%expect {| 1023. |}]
 
 let p1: block = [
         Assign("v", Num(1.0));
