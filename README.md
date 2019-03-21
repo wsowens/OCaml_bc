@@ -1,7 +1,6 @@
 # OCaml_bc
 Implementation of bc in OCaml
 
-
 ## Key changes to the provided code
 
 ### Changing env
@@ -26,3 +25,15 @@ However, this means that `envQueue` is obviated.
 
 
 ### Adding eval_status type
+type statement = 
+    | Assign of string*expr
+    | Return of expr
+    | Expr of expr
+    | If of expr*statement list * statement list
+    | While of expr*statement list
+    | For of statement*expr*statement*statement list
+    | FctDef of string * string list * statement list 
+
+## Scoping Rules
+This project follows the rules set out by bc:
+only function arguments are added to the global scope. All other arguments are placed in the global scope. 
