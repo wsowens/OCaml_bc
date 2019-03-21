@@ -46,12 +46,7 @@ type env = scope * scope list * (Base.string, func, String.comparator_witness) M
 In true functional programming spirit, I used the Base.Map.t, which is completely immutable. Therefore, I also had to return an env from most functions.
 However, this means that `envQueue` is obviated and no longer used.
 
-### Adding print control to evalStatement
-I added a boolean parameter, `do_print` to `evalStatement`. 
-This can be use to prevent unwanted printing.
-For instance, the expressions in the pre/post statements of a For loop should not be printed (according to `bc`.)
-
-## Adding eval_status type
+### Adding eval_status type to evalStatement
 I added a special type, `eval_status` that is passed through the evalStatement function.
 This sum type tracks any return/continue/break statements and also propagates error messages.
 ```OCaml
@@ -62,6 +57,12 @@ type eval_status =
     | Brk
     | Err of string
 ```
+
+### Adding print control to evalStatement
+I added a boolean parameter, `do_print` to `evalStatement`. 
+This can be use to prevent unwanted printing.
+For instance, the expressions in the pre/post statements of a For loop should not be printed (according to `bc`.)
+
 
 ## Statements supported
 All of the following statements are supported:
