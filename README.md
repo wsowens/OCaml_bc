@@ -1,5 +1,5 @@
 # OCaml_bc
-Implementation of bc in OCaml
+Implementation of `bc` (basic calculator) in OCaml for *COP4020 Programming Language Concepts*.
 
 ## Getting Started
 This package requires the core, base, and dune packages.
