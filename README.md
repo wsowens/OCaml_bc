@@ -1,6 +1,16 @@
 # OCaml_bc
 Implementation of bc in OCaml
 
+## Getting Started
+Make sure that you have core, base, and dune installed. Then simply run:
+```
+dune runtest
+```
+
+# Status
+Currently have only added loops, not functions. I will be submitting a version after the deadline so I can show I completed them.
+I wrote ample testcases to prove that all current functionality works perfectly.
+
 ## Key changes to the provided code
 
 ### Changing env
@@ -24,7 +34,7 @@ In true functional programming spirit, I used the Base.Map.t, which is completel
 However, this means that `envQueue` is obviated.
 
 
-### Adding eval_status type
+### Adding eval_status typefa
 type statement = 
     | Assign of string*expr
     | Return of expr
