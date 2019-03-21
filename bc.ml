@@ -62,9 +62,13 @@ let get_var (_k: string) (_e:env): float =
 let put_var (_k: string) (_v: float) (_e: env): env =
     let (globals, locals, funcs) = _e in
     (* let updateOrElse (scp: scope): *)
+    let update_map (m: scope): scope = Map.update m _k ~f:(fun _ -> _v ) in
     match locals with
-    | [] -> ((Map.update globals _k ~f:(fun x -> _v )), locals, funcs)
-    | current :: rest ->  (Map.update globals _k ~f:(fun x-> _v), locals, funcs)
+    | [] -> ((update_map globals), locals, funcs)
+    | current :: rest -> 
+        (match Map.find current _k with
+        | Some(_) -> ( (Stdio.print_endline "choosing locals\n"); globals, (update_map current) :: rest , funcs)
+        | None -> ((Stdio.print_endline "choosing globals\n"); ( (update_map globals), locals, funcs) ) )
 
 let add_func (name: string) (f: func) (_env: env): env =
     let (globals, locals, funcs) = _env in
@@ -77,14 +81,17 @@ let rec call_func (name: string) (args: float list) (_env: env): (float*env, str
     | Some(argnames, body) -> (
         match List.zip argnames args with
         | Some(assigns) -> 
-            ( match Map.of_alist (module String) assigns with
+            ( print_string "List: "; List.iter  assigns ~f:(fun (pair: string*float) -> let value,number = pair in printf "%F" number)  ; print_string "\n"; match Map.of_alist (module String) assigns with
             | `Ok(newlocals) -> 
-                (let new_env, status = evalBlock body (globals, newlocals :: locals, funcs) in
-                match status with
-                | Normal -> Ok(0., new_env)
-                | Ret(value) -> Ok(0., new_env)
-                | Err(msg) -> Error(msg)
-                | _ -> Error("Error: Continue/Break outside of for loop.")
+                (let new_env, status = evalBlock body (globals, newlocals :: locals, funcs) true in
+                match new_env with
+                | globals, newlocals :: locals, funcs -> 
+                    (match status with
+                    | Normal -> Ok(0., (globals, locals, funcs))
+                    | Ret(value) -> Ok(value, (globals, locals, funcs))
+                    | Err(msg) -> Error(msg)
+                    | _ -> Error("Error: Continue/Break outside of for loop."))
+                | _, [], _ -> Error("Stack integrity failure.")
                 )
             | _ -> Error("Error: Duplicate arguments.") )
         | None -> Error("Error: Incorrect number of arguments."))
@@ -104,9 +111,26 @@ and collect_args (args: expr list) (_env: env): (float list*env, string) Result.
 and evalOp1 (op: string) ( _e: expr) (_env: env): (float*env, string) Result.t =
     match evalExpr _e _env with
     | Error(_) as err -> err
-    | Ok(value, _new_env) ->
+    | Ok(value, new_env) ->
             match op with
-            | _ -> Error("Unrecognized operator '" ^ op ^ "'")
+            | "!" -> Ok(value |> ftb |> not |> btf, new_env)
+            | "++a" -> 
+                (match _e with 
+                | Var(id) -> Ok(value +. 1., (put_var id (value +. 1.) new_env))
+                | _ -> Error("Preincrement must be applied to Var.") )
+            | "--a" -> 
+                (match _e with 
+                | Var(id) -> Ok(value -. 1., (put_var id (value -. 1.) new_env))
+                | _ -> Error("Predecrement must be applied to Var.") )
+            | "a++" -> 
+                (match _e with 
+                | Var(id) -> Ok(value, (put_var id (value +. 1.) new_env))
+                | _ -> Error("Postincrement must be applied to Var.") )
+            | "a--" ->
+                (match _e with 
+                | Var(id) -> Ok(value, (put_var id (value -. 1.) new_env))
+                | _ -> Error("Postdecrement must be applied to Var.") )
+             | _ -> Error("Unrecognized operator '" ^ op ^ "'")
 
 and evalOp2(op: string) (_e1: expr) (_e2: expr) (_env: env): (float*env, string) Result.t =
     match evalExpr _e1 _env with
@@ -142,16 +166,16 @@ and evalExpr (_e: expr) (_env: env): (float*env, string) Result.t =
         | Error(_) as err -> err
         | Ok(args, new_env) -> call_func name args new_env )
 
-and evalBlock (b: block) (_env: env): env*eval_status =
+and evalBlock (b: block) (_env: env) (do_print: bool): env*eval_status =
     match b with
     | [] -> _env, Normal
     | stmt :: rest ->
-        match evalStatement stmt _env with
-        | new_env, Normal -> (evalBlock rest new_env)
+        match evalStatement stmt _env do_print with
+        | new_env, Normal -> (evalBlock rest new_env do_print)
         (* if we get a non-normal status, move it up *)
         | new_env, (_ as abnormal) -> new_env, abnormal
 
-and evalStatement (s: statement) (_env: env): env*eval_status =
+and evalStatement (s: statement) (_env: env) (do_print: bool): env*eval_status =
     match s with 
     | Assign(_k, _e) -> 
         (match evalExpr _e _env with
@@ -163,41 +187,41 @@ and evalStatement (s: statement) (_env: env): env*eval_status =
         | Error(msg) -> _env, Err(msg) )
     | Expr(_e) ->
         (match evalExpr _e _env with
-        | Ok(value, new_env) -> (printf "%F" value; new_env, Normal)
+        | Ok(value, new_env) -> (if do_print then printf "%F\n" value; new_env, Normal)
         | Error(msg) -> _env, Err(msg) )
     | If(_e, codeT, codeF) ->
         (match evalExpr _e _env with
         | Error(msg) -> _env, Err(msg)
-        | Ok(value, new_env) -> (if (ftb value) then evalBlock codeT new_env else evalBlock codeF new_env) )
+        | Ok(value, new_env) -> (if (ftb value) then evalBlock codeT new_env do_print else evalBlock codeF new_env do_print) )
     | While(cond, body) ->
         (match evalExpr cond _env with
         | Error(msg) -> _env, Err(msg)
         | Ok(value, new_env) ->
             if (ftb value) then 
-                (let new_env, status = evalBlock body new_env in
+                (let new_env, status = evalBlock body new_env do_print in
                 match status with
                 (* in the normal/ continue case, simply recurse *)
-                | Normal|Continue -> evalStatement s new_env 
+                | Normal|Continue -> evalStatement s new_env do_print
                 (* handle the break by leaving *)
                 | Break -> new_env, Normal
                 | _ as stat -> new_env, stat)
             else new_env, Normal )
     
     | For(pre, cond, post, body) ->
-        ( let new_env, stat = evalStatement pre _env in
+        ( let new_env, stat = evalStatement pre _env false in
         match stat with Normal -> (
             match evalExpr cond new_env with
             | Error(msg) -> new_env, Err(msg)
             | Ok(value, new_env) ->
                 if (ftb value) then
-                    (let new_env, status = evalBlock body new_env in
+                    (let new_env, status = evalBlock body new_env do_print in
                     match status with 
                     (* in the normal/ continue case, simply recurse *)
                     | Normal|Continue -> 
                         (* run the post statement and check, then recurse if good*)
-                        (let new_env, status = evalStatement post new_env in 
+                        (let new_env, status = evalStatement post new_env false in 
                         match status with
-                        | Normal -> ( evalStatement (For(Nop, cond, post, body)) new_env )
+                        | Normal -> ( evalStatement (For(Nop, cond, post, body)) new_env do_print)
                         | _ as abnormal -> new_env, abnormal)
                     (* handle the break by leaving *)
                     | Break -> new_env, Normal
@@ -209,9 +233,9 @@ and evalStatement (s: statement) (_env: env): env*eval_status =
 ;;
 
 let evalCode (_code: block) (_env: env): unit = 
-    match evalBlock _code _env with
+    match evalBlock _code _env true with
     | _, Normal -> ()
-    | _, Ret(value) -> Stdio.print_endline "Error: Return outside of function."
+    | _, Ret(_) -> Stdio.print_endline "Error: Return outside of function."
     | _, Continue | _, Break -> Stdio.print_endline "Error: Continue/Break outside of for loop."
     | _, Err(msg) -> Stdio.print_endline msg
     ;;
@@ -272,7 +296,7 @@ let%expect_test "or" =
 let testexpr = Expr(Op2("/", Op2("*", Num(80.), Num(3.)), Op2("*", Var("myvar"), Num(4.))))
 let%expect_test "statment_expression" =
     let my_env = put_var "myvar" (-6.) empty_env in
-    (match evalStatement testexpr my_env with
+    (match evalStatement testexpr my_env true with
     | _, Normal -> ()
     | _, _ -> Stdio.print_endline "Invalid status code");
     [%expect {| -10. |}]
@@ -281,20 +305,20 @@ let assign = Assign("myvar", Num(-6.))
 let%expect_test "state_assign" =
     let myexpr = Expr(Var("myvar")) in
     (* evaluate the assignment *)
-    let _new_env, _ = evalStatement assign empty_env in
+    let _new_env, _ = evalStatement assign empty_env true in
     (* evaluate the retrieval *)
-    let _, _ = evalStatement myexpr _new_env in
+    let _, _ = evalStatement myexpr _new_env true in
     [%expect {| -6. |}]
 
 let%expect_test "block_test" =
     let b: block = [assign ; testexpr] in 
-    let _ = evalBlock b empty_env in
+    let _ = evalBlock b empty_env true in
     [%expect {| -10. |}]
 ;;
 
 let%expect_test "block_return" =
     let b: block = [assign ; Return(Num(77.)); testexpr] in 
-    (match evalBlock b empty_env with
+    (match evalBlock b empty_env true with
     | _ , Ret(value) -> printf "%F" value
     | _ , _ -> Stdio.print_endline "error");
     [%expect {| 77. |}]
@@ -302,13 +326,15 @@ let%expect_test "block_return" =
 
 let%expect_test "if_else" =
     let b: block = [Assign("var2", Num(3.)); If( Op2("!=", Var("var2"), Num(3.)) , [Expr(Op2("+", Var("var2"), Num(1.)))], [Expr(Op2("-", Var("var2"), Num(1.)))] ) ] in 
-    let _ = evalBlock b empty_env in
+    let _ = evalBlock b empty_env true in
     [%expect {| 2. |}]
 ;;
 
 let%expect_test "while" =
-    let b: block = [While( Op2( "<", Var("abc"), Num(10.) ), [Assign("abc", Op2("+", Var("abc"), Num(3.)))] ) ; Expr(Var("abc")) ] in
-    let _ = evalBlock b empty_env in
+    let b: block = [While( Op2( "<", Var("abc"), Num(10.) ),
+                        [Assign("abc", Op2("+", Var("abc"), Num(3.)))] ); 
+                    Expr(Var("abc")) ] in
+    let _ = evalBlock b empty_env true in
     [%expect {| 12. |}]
 
 let for_block: block = [
@@ -323,6 +349,30 @@ let for_block: block = [
 let%expect_test "For" =
     evalCode for_block empty_env;
     [%expect {| 1023. |}]
+
+let factorial: block = [
+    FctDef("fact", ["x"], [
+            (Assign("randomglobal", Num(42.)));
+            (Assign("x", Var("x")));
+            If ( (Op2("<", Var("x"), Num(2.))),
+                [Return(Num(1.))],
+                [Return( 
+                    Op2("*", Var("x"), Fct("fact", [Op2("-", Var("x"), Num(1.))] )))
+                ]
+            )
+        ]
+    );
+    Expr(Fct("fact", [Num(5.)]));
+    Expr(Var("randomglobal"));
+    Expr(Var("x")) ]
+
+let%expect_test "Factorial" =
+    evalCode factorial empty_env;
+    [%expect {| 
+        120. 
+        42.
+        0.      
+    |}]
 
 let p1: block = [
         Assign("v", Num(1.0));
@@ -343,7 +393,7 @@ let%expect_test "p1" =
         }
     v   // display v
 *)
-(*
+
 let p2: block = [
     Assign("v", Num(1.0));
     If(
@@ -351,7 +401,7 @@ let p2: block = [
         [Assign("v", Op2("+", Var("v"), Num(1.0)))], 
         [For(
             Assign("i", Num(2.0)),
-            Op2("<", Var("i"), Num(10.0)),
+            Op2("<=", Var("i"), Num(10.0)),
             Expr(Op1("++a", Var("i"))),
             [
                 Assign("v", Op2("*", Var("v"), Var("i")))
@@ -364,7 +414,7 @@ let p2: block = [
 
 let%expect_test "p2" =
     evalCode p2 empty_env; 
-    [%expect {| 3628800. |}] *)
+    [%expect {| 3628800. |}] 
 
 (*  Fibbonaci sequence
     define f(x) {
@@ -377,27 +427,27 @@ let%expect_test "p2" =
     f(3)
     f(5)
  *)
-(*
+
+(* using the corrected version posted on the discussion board *)
 let p3: block = 
     [
         FctDef("f", ["x"], [
             If(
-                Op2("<", Var("x"), Num(1.0)),
+                Op2("<", Var("x"), Num(2.0)),
                 [Return(Num(1.0))],
                 [Return(Op2("+",
                     Fct("f", [Op2("-", Var("x"), Num(1.0))]),
-                    Fct("f", [Op2("-", Var("x"), Num(1.0))])
+                    Fct("f", [Op2("-", Var("x"), Num(2.0))])
                 ))])
         ]);
         Expr(Fct("f", [Num(3.0)]));
         Expr(Fct("f", [Num(5.0)]));
     ]
-*)
-(*
+
+
 let%expect_test "p3" =
-    evalCode p3 []; 
+    evalCode p3 empty_env; 
     [%expect {| 
-        2. 
+        3. 
         5.      
     |}]
-*)
