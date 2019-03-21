@@ -34,15 +34,8 @@ In true functional programming spirit, I used the Base.Map.t, which is completel
 However, this means that `envQueue` is obviated.
 
 
-### Adding eval_status typefa
-type statement = 
-    | Assign of string*expr
-    | Return of expr
-    | Expr of expr
-    | If of expr*statement list * statement list
-    | While of expr*statement list
-    | For of statement*expr*statement*statement list
-    | FctDef of string * string list * statement list 
+### Adding eval_status type
+I added a special type, `eval_status` that is passed through the evalStatement function. This sum type tracks any return/continue/break statements and also propagates error messages.
 
 ## Scoping Rules
 This project follows the rules set out by bc:
